@@ -21,32 +21,79 @@ const server = http.createServer((req, res) => {
 // Create a WebSocket server and attach it to the HTTP server
 const wss = new WebSocket.Server({ server });
 
-// Store all connected clients in a Set
-const clients = new Set();
+// Use a Map to store clients, mapping a unique ID to each WebSocket connection
+const clients = new Map();
+let nextClientId = 1;
 
 // WebSocket server event listeners
 wss.on('connection', (ws) => {
-  // Add the new client to our set of clients
-  clients.add(ws);
-  console.log('Client connected');
+  // Generate a unique ID for the new client
+  const clientId = nextClientId++;
+  // Store the new client connection
+  clients.set(clientId, ws);
+  console.log(`Client connected with ID: ${clientId}`);
+
+  // Send the client its assigned ID and a list of all existing clients
+  const existingPeers = Array.from(clients.keys()).filter(id => id !== clientId);
+  ws.send(JSON.stringify({
+    type: 'init-peers',
+    payload: {
+      id: clientId,
+      peerIds: existingPeers
+    }
+  }));
+
+  // Notify all other clients about the new peer
+  for (const [id, client] of clients) {
+    if (id !== clientId && client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify({
+        type: 'new-peer',
+        payload: { id: clientId }
+      }));
+    }
+  }
 
   // Handle messages from the client
   ws.on('message', (message) => {
-    // We iterate over all connected clients
-    for (const client of clients) {
-      // We check if the client is not the sender and is in a ready state
-      if (client !== ws && client.readyState === WebSocket.OPEN) {
-        // We broadcast the message to the client
-        client.send(message.toString());
+    try {
+      // Parse the message
+      const { type, payload, targetId } = JSON.parse(message);
+
+      // Check if the target client exists
+      const targetClient = clients.get(targetId);
+
+      if (targetClient && targetClient.readyState === WebSocket.OPEN) {
+        // Add the sender's ID to the payload
+        const outgoingPayload = {
+          ...payload,
+          senderId: clientId
+        };
+
+        // Forward the message to the target client
+        targetClient.send(JSON.stringify({ type, payload: outgoingPayload }));
+      } else {
+        console.warn(`Target client ${targetId} not found or not open.`);
       }
+    } catch (error) {
+      console.error(`Failed to process message from ${clientId}:`, error);
     }
   });
 
   // Handle client disconnection
   ws.on('close', () => {
-    // Remove the client from our set of clients
-    clients.delete(ws);
-    console.log('Client disconnected');
+    // Remove the client from our map of clients
+    clients.delete(clientId);
+    console.log(`Client disconnected with ID: ${clientId}`);
+
+    // Notify all other clients about the disconnection
+    for (const [id, client] of clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify({
+          type: 'peer-disconnect',
+          payload: { id: clientId }
+        }));
+      }
+    }
   });
 
   // Handle WebSocket errors
