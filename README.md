@@ -1,168 +1,80 @@
-# WebRTC Signaling Server
+# Full-Stack Python WebRTC Video Chat
 
-This is a simple but robust WebRTC signaling server built with Node.js and the `ws` library. It allows WebRTC clients to exchange signaling messages (offers, answers, and ICE candidates) to establish peer-to-peer connections in a multi-user environment.
-
-This server manages a single global room where all clients connect. It assigns unique IDs to clients and routes messages to specific peers, which is necessary for establishing multiple simultaneous connections.
+This is a complete WebRTC video chat application built with a Python backend and a vanilla JavaScript frontend. It allows multiple users to join a single chat room and establish peer-to-peer video and audio connections.
 
 ## Features
 
--   WebSocket-based signaling using unique client IDs.
--   Intelligent routing for `offer`, `answer`, and `ice-candidate` messages.
--   Automatic peer discovery (`new-peer` and `peer-disconnect` notifications).
--   CORS enabled to allow connections from any origin.
--   Includes a health check endpoint at `/health`.
--   Ready for deployment on platforms like Render.
+-   **Python Backend:** Built with Flask, using `flask-sock` for WebSocket handling.
+-   **Intelligent Signaling:** The server manages a multi-user room by assigning unique IDs and routing signaling messages (`offer`, `answer`, `ice-candidate`) between specific peers.
+-   **Dynamic Frontend:** The frontend is built with pure JavaScript, dynamically creating video elements as new peers join the room.
+-   **Peer Discovery:** The server automatically notifies all clients about new peers joining and peers leaving, allowing the UI to update in real-time.
+-   **Deployment Ready:** The application is configured for easy deployment to platforms like Render using Gunicorn.
 
-## Signaling Protocol
+## How It Works
 
-The server and client communicate using JSON-formatted messages. All messages must have a `type` property.
-
-### Messages from Server to Client
-
-#### `init-peers`
-Sent to a client immediately after it connects. Provides the client with its own unique ID and a list of all other clients that are already connected.
-
-```json
-{
-  "type": "init-peers",
-  "payload": {
-    "id": 1,
-    "peerIds": [2, 3]
-  }
-}
-```
-- `payload.id`: Your new unique client ID.
-- `payload.peerIds`: An array of IDs for all other clients already in the room. Your client should create offers for each of these peers.
-
-#### `new-peer`
-Sent to all existing clients when a new client joins the room.
-
-```json
-{
-  "type": "new-peer",
-  "payload": {
-    "id": 4
-  }
-}
-```
-- `payload.id`: The ID of the new client that has just connected. Your client should create an offer for this new peer.
-
-#### `peer-disconnect`
-Sent to all remaining clients when a client disconnects.
-
-```json
-{
-  "type": "peer-disconnect",
-  "payload": {
-    "id": 2
-  }
-}
-```
-- `payload.id`: The ID of the client that has left. Your client should clean up any connections related to this peer.
-
-#### Forwarded Messages (`offer`, `answer`, `ice-candidate`)
-When a peer sends you a message, the server forwards it and adds the sender's ID.
-
-```json
-{
-  "type": "offer", // or "answer", "ice-candidate"
-  "payload": {
-    "senderId": 3,
-    "sdp": { ... } // Original payload from the sender
-  }
-}
-```
-- `payload.senderId`: The ID of the client that sent the message.
-
-### Messages from Client to Server
-
-For `offer`, `answer`, and `ice-candidate` messages, the client **must** include a `targetId` field in the top-level JSON object, indicating the intended recipient.
-
-#### `offer` / `answer`
-Used to send session descriptions to a specific peer.
-
-```json
-{
-  "type": "offer", // or "answer"
-  "targetId": 2,
-  "payload": {
-    "sdp": { ... } // The SDP object
-  }
-}
-```
-- `targetId`: The ID of the peer you want to send this message to.
-- `payload`: The data you want to send. For offers and answers, this typically contains the SDP.
-
-#### `ice-candidate`
-Used to send ICE candidates to a specific peer.
-
-```json
-{
-  "type": "ice-candidate",
-  "targetId": 2,
-  "payload": {
-    "candidate": { ... } // The ICE candidate object
-  }
-}
-```
-- `targetId`: The ID of the peer you want to send this candidate to.
-- `payload`: The data containing the candidate.
-
+1.  A user loads the web page, which is served by Flask.
+2.  The frontend JavaScript requests access to the user's camera and microphone.
+3.  A WebSocket connection is established with the Python signaling server at the `/ws` endpoint.
+4.  The server assigns the new client a unique ID and sends it a list of already connected peers (`init-peers` message).
+5.  The client initiates a WebRTC connection with each existing peer by creating and sending an `offer`.
+6.  When other clients receive the `offer`, they create an `answer` and send it back to the new client.
+7.  Once the offer/answer exchange is complete and ICE candidates have been exchanged, a direct peer-to-peer connection is established, and video/audio streams begin.
+8.  The server's only role is to "introduce" the peers by passing these initial signaling messages. The actual video and audio data flows directly between the clients.
 
 ## Running Locally
 
-To run the signaling server on your local machine, follow these steps:
+To run the application on your local machine, you need Python and pip installed.
 
-### Prerequisites
+### 1. Clone the Repository
+```bash
+git clone <repository-url>
+cd <directory-name>
+```
 
--   [Node.js](https://nodejs.org/) (version 14 or higher)
--   [npm](https://www.npmjs.com/) (usually comes with Node.js)
+### 2. Set up a Virtual Environment (Recommended)
+```bash
+# On macOS/Linux
+python3 -m venv venv
+source venv/bin/activate
 
-### Steps
+# On Windows
+python -m venv venv
+.\venv\Scripts\activate
+```
 
-1.  **Clone the repository:**
-    ```bash
-    git clone <repository-url>
-    cd <directory-name>
-    ```
+### 3. Install Dependencies
+```bash
+pip install -r requirements.txt
+```
 
-2.  **Install dependencies:**
-    ```bash
-    npm install
-    ```
+### 4. Run the Development Server
+The application can be run using Flask's built-in development server.
 
-3.  **Start the server:**
-    ```bash
-    npm start
-    ```
+```bash
+# On macOS/Linux
+export FLASK_APP=app.py
+flask run --port=8080
 
-The server will start on `http://localhost:8080`. Your WebSocket clients should connect to `ws://localhost:8080`.
+# On Windows (Command Prompt)
+set FLASK_APP=app.py
+flask run --port=8080
+
+# On Windows (PowerShell)
+$env:FLASK_APP = "app.py"
+flask run --port=8080
+```
+Now, open your web browser and navigate to `http://127.0.0.1:8080`.
 
 ## Deploying to Render
 
 This project is ready to be deployed as a **Web Service** on [Render](https://render.com/).
 
-### Steps
-
 1.  **Push your code to a GitHub repository.**
-
-2.  **Create a new Web Service on Render:**
-    - Go to your [Render Dashboard](https://dashboard.render.com/).
-    - Click **New +** and select **Web Service**.
-    - Connect your GitHub account and select the repository for this project.
-
+2.  **Create a new Web Service on Render** and connect it to your GitHub repository.
 3.  **Configure the service:**
-    - **Name:** Give your service a name (e.g., `webrtc-signaling-server`).
-    - **Runtime:** Select **Node**.
-    - **Build Command:** `npm install`
-    - **Start Command:** `npm start`
+    -   **Runtime:** Select **Python 3**.
+    -   **Build Command:** `pip install -r requirements.txt`
+    -   **Start Command:** `gunicorn app:app` (Render will automatically use the `Procfile`).
+4.  **Click "Create Web Service".** Render will build and deploy your application.
 
-4.  **Click "Create Web Service".**
-
-Render will automatically build and deploy your service.
-
-### Connecting Your Frontend
-
-Once deployed, your service will have a public URL like `https_//your-service-name.onrender.com`. Your WebRTC application should connect to the WebSocket endpoint using `wss` (secure WebSocket):
-
-`wss://your-service-name.onrender.com`
+Once deployed, access the public URL provided by Render. Your WebSocket connection will automatically use the secure `wss://` protocol.
